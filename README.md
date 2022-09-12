@@ -2,7 +2,7 @@
 
 This repository contains code for the following preprint paper:
 
-Marshall A Dalton, Arkiev D'Souza, Jinglei Lv and Fernando Calamante. " Anatomical connectivity along the anterior-posterior axis of the human hippocampus: new insights using quantitative fibre-tracking." bioRxiv (2021).
+Marshall A Dalton, Arkiev D'Souza, Jinglei Lv and Fernando Calamante. "Anatomical connectivity along the anterior-posterior axis of the human hippocampus: new insights using quantitative fibre-tracking." bioRxiv (2021).
 
 Please cite this paper if you use the scrips or code. License: CC0 1.0 Universal.
 
