@@ -1,0 +1,116 @@
+
+########################################################################################################################################################################
+########################################################################################################################################################################
+# Dalton et al., 2022. New insights into anatomical connectivity along the anterior-posterior axis of the human hippocampus using in-vivo quantitative fibre-tracking. #                                                       #
+#                                                                                                                                                                      #
+# TRACTOGRAPHY PIPELINE PART 1 - Preprocessing (in addition to minimal processing done by HCP) and Whole Brain Tractography                                                                                            #
+########################################################################################################################################################################
+########################################################################################################################################################################
+
+# Definitions
+sub=<subject_ID>
+# Path for data processing
+rootpath=<path_to_project_directory>
+datapath=${rootpath}data/
+
+dataproc_path=${rootpath}DataPreproc_step1/${sub}/
+subject_datapath=${datapath}${sub}/
+tmp_dir=${dataproc_path}tmp_dir/
+mkdir ${dataproc_path}
+mkdir ${tmp_dir}
+
+DWI_image=${subject_datapath}${sub}_DWI.mif.gz
+anat_image=${subject_datapath}${sub}_T1.mif.gz
+T1_brainmask=${subject_datapath}${sub}_T1brainmask.mif.gz
+
+diff_brainmask=${dataproc_path}${sub}_DiffusionMask.mif.gz
+fTT_image=${dataproc_path}${sub}_5TT.mif.gz
+
+
+######################
+# Generate 5TT Image #
+######################
+
+5ttgen fsl ${anat_image} ${fTT_image} \
+	-scratch ${tmp_dir} \
+	-premasked \
+	-nocrop 
+
+##################
+# DWI Processing #
+##################
+
+# Create brain mask
+dwi2mask ${DWI_image} ${diff_brainmask} 
+
+# Bias correction 
+dwibiascorrect ants ${DWI_image} ${dataproc_path}${sub}_DWI_processed.mif.gz \
+	-mask ${diff_brainmask} \
+	-scratch ${tmp_dir} 
+
+##################################
+# Tractography Preparation Steps #
+##################################
+
+# Response function for fiber orientation distribution (FOD)
+dwi2response dhollander ${dataproc_path}${sub}_DWI_processed.mif.gz \
+ 	${dataproc_path}${sub}_WM_dhollander.txt \
+ 	${dataproc_path}${sub}_GM_dhollander.txt \
+ 	${dataproc_path}${sub}_CSF_dhollander.txt \
+ 	-mask ${diff_brainmask} \
+ 	-scratch ${tmp_dir} 
+
+# FOD estimation using multi-shell multi-tissue constrained spherical deconvolution (MSMT-CSD) 
+dwi2fod msmt_csd ${dataproc_path}${sub}_DWI_processed.mif.gz \
+	${dataproc_path}${sub}_WM_dhollander.txt ${dataproc_path}${sub}_WMfod.mif.gz \
+	${dataproc_path}${sub}_GM_dhollander.txt ${dataproc_path}${sub}_GMfod.mif.gz \
+	${dataproc_path}${sub}_CSF_dhollander.txt ${dataproc_path}${sub}_CSFfod.mif.gz \
+	-mask ${diff_brainmask} 
+
+# Intensity Normalization
+mtnormalise ${dataproc_path}${sub}_WMfod.mif.gz ${dataproc_path}${sub}_WMfod_norm.mif.gz \
+	${dataproc_path}${sub}_GMfod.mif.gz ${dataproc_path}${sub}_GMfod_norm.mif.gz \
+	${dataproc_path}${sub}_CSFfod.mif.gz ${dataproc_path}${sub}_CSFfod_norm.mif.gz \
+ 	-mask ${diff_brainmask} 
+
+
+###############################################################################################
+# Whole Brain Tractography - Generate 70M tracks across the whole brain using dynamic seeding #
+###############################################################################################
+
+# Definitions for tracking 
+	tckno=70M
+	alg=iFOD2 
+	cutoff_value=0.06
+	min_length=5
+	max_length=300
+	max_attempts=1000
+	tck_file=${dataproc_path}${sub}_tracks_${tckno}.tck
+	fod_norm_file=${dataproc_path}${sub}_WMfod_norm.mif.gz 
+	weights_file=${dataproc_path}${sub}_${tckno}weights.csv
+
+
+# Whole brain tckgen 
+tckgen ${fod_norm_file} ${tck_file} \
+	-algorithm ${alg} \
+	-select ${tckno} \
+	-seed_dynamic ${fod_norm_file} \
+	-act ${fTT_image} \
+	-backtrack \
+	-cutoff ${cutoff_value} \
+	-minlength ${min_length} \
+	-maxlength ${max_length} \
+	-max_attempts_per_seed ${max_attempts} \
+	-crop_at_gmwmi 
+
+# SIFT2
+tcksift2 ${tck_file} ${fod_norm_file} ${weights_file} 
+
+# TDI map (to be used as a template in subsequent steps)
+vox=0.2
+TDI_file=${dataproc_path}${sub}_TDI_${tckno}_${vox}_${alg}.mif.gz
+
+tckmap ${tck_file} ${TDI_file} \
+	-vox ${vox} \
+	-tck_weights_in ${weights_file} 
+

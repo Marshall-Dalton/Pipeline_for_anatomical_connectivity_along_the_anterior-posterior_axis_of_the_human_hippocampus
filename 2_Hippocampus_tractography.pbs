@@ -1,0 +1,231 @@
+
+########################################################################################################################################################################
+########################################################################################################################################################################
+# Dalton et al., 2022. New insights into anatomical connectivity along the anterior-posterior axis of the human hippocampus using in-vivo quantitative fibre-tracking. #                                                       #
+#                                                                                                                                                                      # 
+# TRACTOGRAPHY PIPELINE PART 2 - Hippocampus Tractography                                                                                                              #
+#                                                                                                                                                                      #
+# Note -                                                                                                                                                               #
+# Before running the next steps, for each participant, create a hippocampus mask and a hippocampus gmwmi mask (Described in the methods section of the manuscript).    #
+# For the hippocampus mask, take particular care to ensure that all boundaries of the mask do not encroach into adjacent white matter or grey matter structures.       #
+# For the hippocampus gmwmi mask, ensure that the mask extends inferiorly to encompass all portions of the gmwmi that lie immediately inferior to the hippocampus.     #   
+# See Figure 7-figure supplement 1 for examples of each mask.                                                                                                          # 
+# The hippocampus mask is inlcuded as 5th tissue type and the hippocampus gmwmi mask as WM in a modified 5TT image (See Methods for detail and rationale).             # 
+########################################################################################################################################################################
+########################################################################################################################################################################
+
+# Definitions
+sub=<subject_ID>
+
+# Path for data processing
+rootpath=<path_to_project_directory>
+dataproc_path=${rootpath}DataPreproc_step4to7/${sub}/
+subject_datapath=${rootpath}DataPreproc_step1/${sub}/
+tmp_dir=${dataproc_path}tmp_files/
+mkdir ${rootpath}DataPreproc_step4to7/
+mkdir ${dataproc_path}
+mkdir ${tmp_dir}
+
+# Files that are created manually 
+
+# Hippocampus mask which includes only the hippocampus
+Hippocampus_mask=${rootpath}ManualMasking/Hippocampus_mask/${sub}_Hippocampus_mask.nii.gz
+
+# Hippocampus mask which extends inferiorly to include the underlying GMWMI
+Hippocampus_GMWMI_mask=${rootpath}ManualMasking/HippoInterface/${sub}_Hippocampus_GMWMI_mask.nii.gz
+
+# Files that were created in PART 1 that are required for remaining steps 
+fod_norm_file=${subject_datapath}${sub}_WMfod_norm.mif.gz 
+tckno_wholebrain=70M
+alg=iFOD2
+vox=0.2
+original5TT=${subject_datapath}${sub}_5TT.mif.gz
+WholeBrain_tck_file=${subject_datapath}${sub}_tracks_${tckno_wholebrain}.tck
+Modified5TT=${dataproc_path}${sub}_Modified5TT.mif.gz
+TDI_file=${subject_datapath}${sub}_TDI_${tckno_wholebrain}_${vox}_${alg}.mif.gz
+
+# temp files that get deleted
+original5TT_regridded=${tmp_dir}${sub}_5TTregridded.mif.gz
+fTT_tmp=${tmp_dir}${sub}_5TTtmp.mif.gz
+Hippocampus_mask_regridded=${tmp_dir}${sub}_Hippocampus_mask_regridded.mif.gz
+Hippocampus_GMWMI_mask_regridded=${tmp_dir}${sub}_Hippocampus_GMWMI_mask_regridded.mif.gz
+
+# regrid Hippocampus_mask and Hippocampus_GMWMI_mask images
+mrgrid ${Hippocampus_mask} -template ${TDI_file} -interp nearest regrid ${Hippocampus_mask_regridded} 
+mrgrid ${Hippocampus_GMWMI_mask}  -template ${TDI_file} -interp nearest regrid ${Hippocampus_GMWMI_mask_regridded} 
+
+
+###################################################################################################################################################################
+# Create Modified 5TT Image - add the regridded Hippocampus mask to the 5TT image labelled as 5th tissue type and the Hippocampus gmwmi mask image labelled as WM #
+###################################################################################################################################################################
+
+# Regrid the 5TT image to the resolution of the TDI image
+mrgrid ${original5TT} regrid -template ${TDI_file} -interp nearest ${original5TT_regridded} 
+
+# Label Hippocampus_GMWMI_mask as WM in 5TT image
+5ttedit  ${original5TT_regridded} ${fTT_tmp} \
+-wm ${Hippocampus_GMWMI_mask_regridded} 
+
+# Label Hippocampus_mask as 5th tissue type in 5TT image
+5ttedit  ${fTT_tmp} ${Modified5TT} \
+-path ${Hippocampus_mask_regridded} 
+
+
+####################################################
+# Generate 10M tracks seeding from the hippocampus #
+####################################################
+
+# Definitions for tracking
+tckno=10M 
+alg=iFOD2 
+TDI_vox=0.2
+max_attempts=20k
+max_length=300
+parcellation_root=${rootpath}ParcellationFiles/Parcellation/
+hippocampus_tck_file=${dataproc_path}${sub}_tracks_${tckno}_Hippocampus_mask_Seed.tck
+tck_file_combined=${dataproc_path}${sub}_tracks_combined_Hippo.tck
+weights_file_combined=${dataproc_path}${sub}_weights_combined_Hippo.csv
+connectome_file=${dataproc_path}${sub}_Connectome_Combined.csv
+extracted_hippocampus_tracks=${dataproc_path}${sub}_Extracted.tck
+extracted_hippocampus_weights=${dataproc_path}${sub}_Extracted.csv
+
+# Hippocampus tckgen
+tckgen ${fod_norm_file} ${hippocampus_tck_file} \
+-algorithm ${alg} \
+-select ${tckno} \
+-seeds 0 \
+-seed_image ${Hippocampus_mask_regridded} \
+-act ${Modified5TT} \
+-backtrack \
+-crop_at_gmwmi \
+-max_attempts_per_seed ${max_attempts} \
+-maxlength ${max_length} 
+
+
+################################################################################################################
+# Combine 70M whole-brain and 10M hippocampal tracks and perform SIFT2                                         #
+# Note - This assigns a weight to each track and provides biological credence to the connectivity measurements #
+################################################################################################################
+
+# Concatenate 10M hippocampus tck file with 70M whole brain tck file
+tckedit ${WholeBrain_tck_file} ${hippocampus_tck_file} ${tck_file_combined} 
+
+# Conduct SIFT2 to get the weights of combined tck file
+tcksift2 ${tck_file_combined} ${fod_norm_file} ${weights_file_combined} \
+-act ${Modified5TT} 
+
+
+###################################################################################################################
+# Extract streamlines (and corresponding SIFT2 weights) belonging to the hippocampus                              #
+# Note - The -ends_only option is used to isolate only those streamlines with an endpoint in the hippocampus mask #
+###################################################################################################################
+
+tckedit ${tck_file_combined} ${extracted_hippocampus_tracks}  \
+-include ${Hippocampus_mask_regridded} \
+-tck_weights_in ${weights_file_combined} \
+-tck_weights_out ${extracted_hippocampus_weights} \
+-ends_only 
+
+
+############################################################################################################################################################
+# Apply the Human Connectome Project Multi-Modal Parcellation (HCPMMP) Scheme to Each Participant.                                                         #
+#                                                                                                                                                          #
+# Prior to quantifying connectivity measures between the hippocampus and cortical mantle, generate a connectome matrix encompassing cortical structures as #
+# defined by the Human Connectome Project Multi-Modal Parcellation (HCPMMP) Scheme (adapted from reference 86)                                             #
+# Note - This section requires FreeSurfer ReconAll to have already been completed and uses freesurfer commands                                             #
+############################################################################################################################################################
+
+annotation_path=${rootpath}ParcellationFiles/annotation_files/
+subject_parcpath=${rootpath}ParcellationFiles/OutputImages/${sub}/ # define a directory to store output images
+parc_ordered=${subject_parcpath}${sub}_parc_ordered.mif.gz
+
+# Map the annotation files of the HCPMMP 1.0 atlas from fsaverage to each participant. 
+for side in lh rh 
+do
+	
+# This command assumes that the FreeSurfer subject directory has been defined, and contains the participant FreeSurfer recon-all output as well as fsaverage
+mri_surf2surf --srcsubject fsaverage --trgsubject ${sub} --hemi ${side} --sval-annot ${SUBJECTS_DIR}/fsaverage/label/${side}.glasser.annot --tval ${SUBJECTS_DIR}/${sub}/label/${side}.hcpmmp1.annot
+	
+done 
+
+# Map the HCPMMP 1.0 annotations onto the volumetric image and add (FreeSurfer-specific) subcortical segmentation. Convert the resulting file to .mif format
+mri_aparc2aseg --old-ribbon --s ${sub} --annot hcpmmp1 --o ${subject_parcpath}${sub}_parc.mgz 
+mrconvert -datatype uint32 ${subject_parcpath}${sub}_parc.mgz ${subject_parcpath}${sub}_parc.mif.gz 
+
+# Replace the random integers of mif file with integers that start at 1 and increase by 1
+labelconvert ${subject_parcpath}${sub}_parc.mif.gz ${annotation_path}hcpmmp1_original.txt ${annotation_path}hcpmmp1_ordered.txt ${parc_ordered}
+
+
+# Remove the automated hippocampus from the freesurfer parcellation and replace with the manually segmented hippocampus mask for each participant (Rationale described in Methods) 
+# Note - We return to using MRtrix commands from here                                                                                                                              
+
+Hippo_idx=380
+# index of hippocampus in FreeSufer file is 366 and 375
+parc_366=${tmp_dir}NotHippoBinary_366.mif.gz
+parc_375=${tmp_dir}NotHippoBinary_375.mif.gz
+BinaryLR=${tmp_dir}NotHippoBinary_LR.mif.gz
+NoHippoGlasser=${tmp_dir}NoHippoGlasser.mif.gz
+ManualInvert=${tmp_dir}ManualInvert.mif.gz
+NoHippoGlasser_resized=${tmp_dir}NoHippoGlasser_resized.mif.gz
+NoHippos_parc=${tmp_dir}NoHipposParc.mif.gz.mif.gz
+Hippocampus_mask_indexed=${tmp_dir}RegionFineIndexed.mif.gz.mif.gz
+parc_connectome=${dataproc_path}${sub}_ParcConnectome.mif.gz
+parc_ordered=${rootpath}ParcellationFiles/Parcellation/${sub}/${sub}_parc_ordered.mif.gz
+
+mrcalc ${parc_ordered} 366 -neq ${parc_366} -force
+mrcalc ${parc_ordered} 375 -neq ${parc_375} -force
+mrcalc ${parc_366} ${parc_375} -mult ${BinaryLR} -force
+mrcalc ${parc_ordered} ${BinaryLR} -mult ${NoHippoGlasser} -force
+mrcalc ${Hippocampus_mask} 0 -eq ${ManualInvert} -force
+mrgrid ${NoHippoGlasser} regrid -template ${ManualInvert} -interp nearest -datatype uint32 ${NoHippoGlasser_resized} -force
+mrcalc ${NoHippoGlasser_resized} ${ManualInvert} -mult ${NoHippos_parc} -force
+mrcalc ${Hippocampus_mask} ${Hippo_idx} -mult ${Hippocampus_mask_indexed} -force
+mrcalc ${Hippocampus_mask_indexed} ${NoHippos_parc} -add ${parc_connectome} -datatype uint32 -force
+
+
+##############################################################################################################################################################################################
+# Whole Hippocampus Connectivity                                                                                                                                                             #
+#                                                                                                                                                                                            #
+# The strength of connectivity between the hippocampus and every other parcel of the HCPMMP was measured by the sum of the SIFT2 weighted connectivity values from the connectivity matrix.  # 
+# Note - we are only interested in the column(s) of the matrix corresponding to the manually segmented hippocampus mask (or 3 masks, for the case of the head/body/tail analysis in PART 3). # 
+##############################################################################################################################################################################################
+
+# Definitions
+connectome_label=Glasser
+mkdir ${dataproc_path}ConnectomeFiles
+connectome_path=${dataproc_path}ConnectomeFiles/
+connectome_file=${connectome_path}${sub}_${connectome_label}_Connectome.csv
+connectome_file_extracted_whole_hippocampus=${connectome_path}${sub}_${connectome_label}_ConnectomeExtracted_whole_hippocampus.csv
+assignments_file=${connectome_path}${sub}_${connectome_label}_assignments.csv
+assignments_file_extracted_hippocampus_tracks=${connectome_path}${sub}_${connectome_label}_assignments_extracted.csv
+
+tck2connectome ${extracted_hippocampus_tracks} ${parc_connectome} ${connectome_file_extracted_whole_hippocampus} \
+-out_assignments ${assignments_file_extracted_hippocampus_tracks} \
+-symmetric \
+-zero_diagonal \
+-assignment_radial_search 2 \
+-tck_weights_in ${extracted_hippocampus_weights} 
+
+
+################################################################################################################################################################################################
+# Super-Resolution Track Density Imaging (TDI) Mapping of Tracks Between the Hippocampus and the Other Parcels of the HCPMMP                                                                   #
+#                                                                                                                                                                                              #
+# The extracted hippocampus tractogram was used to isolate tracks (and their SIFT2 weights) between the whole hippocampus parcel and every other parcel in the modified HCPMMP file.           #
+# Two different TDI maps were computed for each parcel; one for the hippocampus tractogram, and one for the endpoints of this tractogram. Both are constructed at 0.2 mm isotropic resolution. #
+################################################################################################################################################################################################
+
+# Definitions
+TDI_vox=0.2
+TDIfileWhole=${dataproc_path}${sub}_TDI_WholeHippocampus.mif.gz 
+TDIfileWhole_endpoints=${dataproc_path}${sub}_TDI_WholeHippocampus_endpoints.mif.gz 
+
+# tckmap 
+tckmap ${extracted_hippocampus_tracks} ${TDIfileWhole} \
+-tck_weights_in ${extracted_hippocampus_weights} \
+-vox $TDI_vox 
+
+# tckmap endpoints
+tckmap ${extracted_hippocampus_tracks} ${TDIfileWhole_endpoints} \
+-tck_weights_in ${extracted_hippocampus_weights} \
+-vox $TDI_vox \
+-ends_only

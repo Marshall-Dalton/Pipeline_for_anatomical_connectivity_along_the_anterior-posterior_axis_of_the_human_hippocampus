@@ -1,0 +1,165 @@
+
+########################################################################################################################################################################
+########################################################################################################################################################################
+# Dalton et al., 2022. New insights into anatomical connectivity along the anterior-posterior axis of the human hippocampus using in-vivo quantitative fibre-tracking. # #                                                                                                                                                                      #
+#                                                                                                                                                                      #  
+# TRACTOGRAPHY PIPELINE PART 3 - Anterior-Posterior Axis Connectivity                                                                                                  #
+#                                                                                                                                                                      #
+# For the anterior-posterior axis analyses, masks for the head, body and tail of the hippocampus (described in methods) were added to the HCPMMP                       #
+# as their own unique parcel. The strength of connectivity between each hippocampal region (head, body and tail) and each parcel of the modified HCPMMP was            #
+# measured by the sum of the SIFT2 weighted connectivity values.                                                                                                       #
+########################################################################################################################################################################
+########################################################################################################################################################################
+
+# Definitions
+sub=<subject_ID>
+
+# Path for data processing
+rootpath=<path_to_project_directory>
+dataproc_path=${rootpath}DataPreproc_HippoThirds/${sub}/
+subject_datapath=${rootpath}DataPreproc_step1/${sub}/
+tmp_dir=${dataproc_path}tmp_dir/
+mkdir ${rootpath}DataPreproc_HippoThirds/
+mkdir ${dataproc_path}
+mkdir ${tmp_dir}
+
+# Files that were created in previous steps that are required for remaining steps 
+fod_norm_file=${subject_datapath}${sub}_WMfod_norm.mif.gz 
+tckno_wholebrain=70M
+alg=iFOD2
+WholeBrain_tck_file=${subject_datapath}${sub}_tracks_${tckno_wholebrain}.tck
+Modified5TT=${rootpath}DataPreproc_step4to7/${sub}/${sub}_Modified5TT.mif.gz
+
+# Global definitions
+parcellation_root=${rootpath}ParcellationFiles/Parcellation/
+Hippocampus_mask=${rootpath}ManualMasking/Hippocampus_mask/${sub}_Hippocampus_mask.nii.gz
+ordered_parcfile=${rootpath}ParcellationFiles/Parcellation/${sub}/${sub}_parc_ordered.mif.gz
+RegionalMaskPath=${rootpath}ManualMasking/HippoThirds/
+extracted_hippocampus_tracks=${rootpath}DataPreproc_step4to7/${sub}/${sub}_Extracted.tck
+extracted_hippocampus_weights=${rootpath}DataPreproc_step4to7/${sub}/${sub}_Extracted.csv
+
+
+###################################################################################################################################################################################################
+# Remove the manually segmented whole hippocampus mask from the freesurfer parcellation and replace with the manually segmented head, body and tail masks (indexed at 380, 381, 382 respectively) # 
+# for each participant (Rationale described in Methods)                                                                                                                                           #
+###################################################################################################################################################################################################
+
+Hippo_idx_head=380
+Hippo_idx_body=381
+Hippo_idx_tail=382
+
+parc_366=${tmp_dir}NotHippoBinary_366.mif.gz
+parc_375=${tmp_dir}NotHippoBinary_375.mif.gz
+BinaryLR=${tmp_dir}NotHippoBinary_LR.mif.gz
+NoHippoGlasser=${tmp_dir}NoHippoGlasser.mif.gz
+ManualInvert=${tmp_dir}ManualInvert.mif.gz
+NoHippoGlasser_resized=${tmp_dir}NoHippoGlasser_resized.mif.gz
+NoHippos_parc=${tmp_dir}NoHipposParc.mif.gz
+parc_connectome_HippoThirds=${dataproc_path}${sub}_ParcConnectome_HippoThirds.mif.gz
+
+mrcalc ${ordered_parcfile} 366 -neq ${parc_366} -force
+mrcalc ${ordered_parcfile} 375 -neq ${parc_375} -force
+mrcalc ${parc_366} ${parc_375} -mult ${BinaryLR} -force
+mrcalc ${ordered_parcfile} ${BinaryLR} -mult ${NoHippoGlasser} -force
+mrcalc ${Hippocampus_mask} 0 -eq ${ManualInvert} -force
+mrgrid ${NoHippoGlasser} regrid -template ${ManualInvert} -interp nearest -datatype uint32 ${NoHippoGlasser_resized} -force
+mrcalc ${NoHippoGlasser_resized} ${ManualInvert} -mult ${NoHippos_parc} -force
+
+for region in head body tail
+do
+	HippoThirds_indexed=${tmp_dir}${region}Indexed.mif.gz
+	HippoThirds=${RegionalMaskPath}${sub}_Hippo_${region}.mif.gz
+
+	mrcalc ${HippoThirds} $((Hippo_idx_${region})) -mult ${HippoThirds_indexed} -force
+	
+done
+# add the three hippocampus regions into one image
+mrcalc ${tmp_dir}headIndexed.mif.gz ${tmp_dir}bodyIndexed.mif.gz -add ${tmp_dir}tailIndexed.mif.gz -add ${NoHippos_parc} -add ${parc_connectome_HippoThirds} -datatype uint32 -force
+
+
+#############################################################################################################
+# Generate connectome using parcellation file with manually segmented hippocampal head, body and tail masks #
+#############################################################################################################
+
+connectome_label=Glasser
+
+mkdir ${dataproc_path}ConnectomeFiles
+connectome_path=${dataproc_path}ConnectomeFiles/
+
+connectome_file_extracted_HippoThirds=${connectome_path}${sub}_${connectome_label}_ConnectomeExtracted_HippoThirds.csv
+assignments_file_HippoThirds=${connectome_path}${sub}_${connectome_label}_assignments_HippoThirds.csv
+
+
+# Extracted tck connectome
+tck2connectome ${extracted_hippocampus_tracks} ${parc_connectome_HippoThirds} ${connectome_file_extracted_HippoThirds} \
+-out_assignments ${assignments_file_HippoThirds} \
+-symmetric \
+-zero_diagonal \
+-assignment_radial_search 2 \
+-tck_weights_in ${extracted_hippocampus_weights} \
+-force
+
+
+###################################################################################################################
+# Confine further analysis to the top 20 most highly connected nodes identified in the whole hippocampus analysis #
+###################################################################################################################
+
+# Path for data processing
+c2t_path_tmp=${dataproc_path}connectome2tracks/
+mkdir ${c2t_path_tmp}
+
+# Confine NodeInterest to the top 20 most highly connected cortical nodes identified in the whole hippocampus analysis. 
+# Note - the NodeInterest list contains 40 nodes because we include the left and right hemisphere for each of the top 20 most highly connected cortical areas.
+
+for NodeInterest in 135 315 121 301 1 181 4 184 31 211 131 311 172 352 5 185 134 314 160 340 14 194 163 343 142 322 15 195 153 333 18 198 6 186 136 316 3 183 13 193
+do
+
+echo ${NodeInterest}
+
+c2t_path=${c2t_path_tmp}Node${NodeInterest}/
+mkdir ${c2t_path}
+
+TDIpath=${c2t_path}TDImaps/
+mkdir $TDIpath
+
+# Files that were created in previous steps 
+extracted_hippocampus_tracks=${rootpath}DataPreproc_step4to7/${sub}/${sub}_Extracted.tck
+extracted_hippocampus_weights=${rootpath}DataPreproc_step4to7/${sub}/${sub}_Extracted.csv
+ftt_img=${rootpath}DataPreproc_step4to7/${sub}/${sub}_Modified5TT.mif.gz
+
+#######################################################################################################
+# Extract tracks (and associated SIFT2 weights) between each hippocampus region and nodes of interest # 
+#######################################################################################################
+
+# connectome2tck tracks for each cortical region of interest
+for region in head body tail
+do
+	
+	if [[ ${region} = head ]]
+	then
+	node=380
+	fi
+
+	if [[ ${region} = body ]]
+	then
+	node=381
+	fi
+
+	if [[ ${region} = tail ]]
+	then
+	node=382
+	fi
+
+	tckfile=${c2t_path}Tracks_${region}.tck   
+	weightsfile=${c2t_path}Weights_${region}  
+	
+	connectome2tck ${extracted_hippocampus_tracks} ${assignments_file_HippoThirds} ${tckfile} \
+	-tck_weights_in ${extracted_hippocampus_weights} \
+	-prefix_tck_weights_out ${weightsfile} \
+	-nodes ${NodeInterest},${node} \
+	-exclusive \
+	-files single 
+	
+done
+done
+
