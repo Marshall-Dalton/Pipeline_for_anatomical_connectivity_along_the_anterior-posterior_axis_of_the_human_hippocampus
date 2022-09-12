@@ -6,18 +6,19 @@ Marshall A Dalton, Arkiev D'Souza, Jinglei Lv and Fernando Calamante. " Anatomic
 
 Please cite this paper if you use the scrips or code. License: CC0 1.0 Universal.
 
+
 Instructions:
 There are 3 steps to characterise anatomical connectivity along the anterior-posterior axis of the human hippocampus. You will need T1w and Diffusion MRI data. HCP data is used for this paper.
 
 Step 1: 1_Preprocessing_and_whole_brain_tractography.pbs
 
-Preprocessing (in addition to minimal processing done by HCP) and whole brain tractography.
+        Preprocessing (in addition to minimal processing done by HCP) and whole brain tractography.
 
 Step 2: 2_Hippocampus_tractography.pbs
 
-Use this script to conduct hippocampus tractography.
+        Use this script to conduct hippocampus tractography.
 
 Step 3: 3_Anterior_posterior_axis_connectivity.pbs
 
-Use this script to conduct hippocampus tractography specific to the head, body and tail of the hippocampus.
+        Use this script to conduct hippocampus tractography specific to the head, body and tail of the hippocampus.
 
