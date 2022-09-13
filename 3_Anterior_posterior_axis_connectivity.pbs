@@ -109,7 +109,7 @@ c2t_path_tmp=${dataproc_path}connectome2tracks/
 mkdir ${c2t_path_tmp}
 
 # Confine NodeInterest to the top 20 most highly connected cortical nodes identified in the whole hippocampus analysis. 
-# Note - the NodeInterest list contains 40 nodes because we include the left and right hemisphere for each of the top 20 most highly connected cortical areas.
+# Note - the NodeInterest list contains 40 nodes because we include the left and right hemisphere for each cortical area.
 
 for NodeInterest in 135 315 121 301 1 181 4 184 31 211 131 311 172 352 5 185 134 314 160 340 14 194 163 343 142 322 15 195 153 333 18 198 6 186 136 316 3 183 13 193
 do
@@ -127,9 +127,9 @@ extracted_hippocampus_tracks=${rootpath}DataPreproc_step4to7/${sub}/${sub}_Extra
 extracted_hippocampus_weights=${rootpath}DataPreproc_step4to7/${sub}/${sub}_Extracted.csv
 ftt_img=${rootpath}DataPreproc_step4to7/${sub}/${sub}_Modified5TT.mif.gz
 
-#######################################################################################################
-# Extract tracks (and associated SIFT2 weights) between each hippocampus region and nodes of interest # 
-#######################################################################################################
+#############################################################################################################################
+# Extract tracks (and associated SIFT2 weights) between each hippocampus region (head, body and tail) and nodes of interest # 
+#############################################################################################################################
 
 # connectome2tck tracks for each cortical region of interest
 for region in head body tail
