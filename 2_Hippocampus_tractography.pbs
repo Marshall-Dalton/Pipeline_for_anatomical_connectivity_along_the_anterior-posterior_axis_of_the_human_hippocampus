@@ -50,7 +50,7 @@ fTT_tmp=${tmp_dir}${sub}_5TTtmp.mif.gz
 Hippocampus_mask_regridded=${tmp_dir}${sub}_Hippocampus_mask_regridded.mif.gz
 Hippocampus_GMWMI_mask_regridded=${tmp_dir}${sub}_Hippocampus_GMWMI_mask_regridded.mif.gz
 
-# regrid Hippocampus_mask and Hippocampus_GMWMI_mask images
+# regrid the Hippocampus_mask and Hippocampus_GMWMI_mask images to the resolution of the TDI image
 mrgrid ${Hippocampus_mask} -template ${TDI_file} -interp nearest regrid ${Hippocampus_mask_regridded} 
 mrgrid ${Hippocampus_GMWMI_mask}  -template ${TDI_file} -interp nearest regrid ${Hippocampus_GMWMI_mask_regridded} 
 
